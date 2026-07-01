@@ -105,13 +105,15 @@
   .lg-dot { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:6px; vertical-align:middle; }
 
   /* chart */
-  .chart-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
-  .seg-toggle { display:flex; gap:4px; background:var(--surface-2); border:1px solid var(--line);
-    border-radius:9px; padding:3px; }
-  .seg-toggle button { border:none; background:transparent; color:var(--muted); font-size:12.5px;
-    font-weight:650; padding:5px 11px; border-radius:6px; cursor:pointer; }
-  .seg-toggle button[aria-pressed="true"] { background:var(--accent-weak); color:var(--accent-strong); }
   .chart-note { font-size:12px; color:var(--muted); margin-top:9px; }
+  .sec-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
+  .sec-total { font-size:20px; font-weight:820; letter-spacing:-.01em; }
+  .field-label.debt { color:var(--neg); }
+  .sec-total.debt { color:var(--neg); }
+  .sub-label { font-size:11.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--faint); margin:0 0 4px; }
+  .mt2 { margin-top:16px; }
+  .neg-amt { color:var(--neg); }
 
   /* data */
   .data-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
@@ -224,25 +226,25 @@
     </div>
 
     <div class="card">
-      <div class="chart-head">
-        <div class="field-label" style="margin:0">Net worth over time</div>
-        <div class="seg-toggle">
-          <button id="mMonthly" aria-pressed="true" onclick="setChartMode('month')">Monthly</button>
-          <button id="mYearly" aria-pressed="false" onclick="setChartMode('year')">Yearly</button>
-        </div>
-      </div>
+      <div class="field-label">Net worth over time</div>
       <div id="chartArea"></div>
       <div class="chart-note" id="chartNote"></div>
     </div>
 
     <div class="card">
-      <div class="field-label">By category</div>
-      <div id="byCategory"></div>
+      <div class="sec-head"><div class="field-label" style="margin:0">Total assets</div><div class="sec-total num" id="assetsTotal"></div></div>
+      <div class="sub-label">By category</div>
+      <div id="assetsByCat"></div>
+      <div class="sub-label mt2">By location</div>
+      <div id="assetsByJur"></div>
     </div>
 
-    <div class="card">
-      <div class="field-label">By location</div>
-      <div id="byJuris"></div>
+    <div class="card" id="debtsCard">
+      <div class="sec-head"><div class="field-label debt" style="margin:0">Total debts</div><div class="sec-total debt num" id="debtsTotal"></div></div>
+      <div class="sub-label">By category</div>
+      <div id="debtsByCat"></div>
+      <div class="sub-label mt2">By location</div>
+      <div id="debtsByJur"></div>
     </div>
 
     <div class="card">
@@ -346,7 +348,6 @@ var KEY = "wealth_v1";
 var DEFAULT_CATS = ["Cash","Investments","Pension","Property","Gold","Other"];
 var PALETTE = ["#d97757","#6cae8e","#5b9bd9","#c79a5b","#e9c24c","#9d90b4","#cf6f6f","#7fb8c9","#c98fb0","#a3b06c"];
 var SYM = { GBP:"\u00a3", USD:"$", EUR:"\u20ac", INR:"\u20b9" };
-var chartMode = "month";
 function orderedCats(){ var list=state.categories.slice();
   state.accounts.forEach(function(a){ if(list.indexOf(a.cat)<0) list.push(a.cat); }); return list; }
 function catColor(cat){ var i=state.categories.indexOf(cat);
@@ -372,17 +373,20 @@ function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch
 function rateOf(cur){ return state.rates[cur] || 0; }
 function gbpOf(a){ return (parseFloat(a.val)||0) * rateOf(a.cur); }
 function totalGBP(){ var s=0; state.accounts.forEach(function(a){ s+=gbpOf(a); }); return s; }
+function assetsGBP(){ var s=0; state.accounts.forEach(function(a){ var g=gbpOf(a); if(g>0) s+=g; }); return s; }
+function debtsGBP(){ var s=0; state.accounts.forEach(function(a){ var g=gbpOf(a); if(g<0) s-=g; }); return s; }
 function groupWestern(s){ var out="",c=0; for(var i=s.length-1;i>=0;i--){ out=s[i]+out; if(++c%3===0&&i>0) out=","+out; } return out; }
 function groupIndian(s){ if(s.length<=3) return s;
   var last3=s.slice(-3), rest=s.slice(0,-3), parts=[];
   while(rest.length>2){ parts.unshift(rest.slice(-2)); rest=rest.slice(0,-2); }
   if(rest.length) parts.unshift(rest);
   return parts.join(",")+","+last3; }
-function grpFor(n,cur){ n=Math.round(n); var neg=n<0, s=String(Math.abs(n));
-  return (neg?"-":"")+(cur==="INR"?groupIndian(s):groupWestern(s)); }
+function grpFor(n,cur){ n=Math.round(Math.abs(n)); return cur==="INR"?groupIndian(String(n)):groupWestern(String(n)); }
 function money(gbp){ var d=state.display, v=gbp/(state.rates[d]||1), sym=SYM[d];
-  return sym ? sym+grpFor(v,d) : grpFor(v,d)+" "+d; }
-function nativeStr(a){ var sym=SYM[a.cur], v=parseFloat(a.val)||0; return (sym?sym:"")+grpFor(v,a.cur)+(sym?"":" "+a.cur); }
+  var neg=v<0, body = sym ? sym+grpFor(v,d) : grpFor(v,d)+" "+d;
+  return (neg?"-":"")+body; }
+function nativeStr(a){ var sym=SYM[a.cur], v=parseFloat(a.val)||0, neg=v<0;
+  return (neg?"-":"")+(sym?sym:"")+grpFor(v,a.cur)+(sym?"":" "+a.cur); }
 
 /* ---------- render: accounts ---------- */
 function show(which){
@@ -398,8 +402,7 @@ function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&a
 
 function renderAccounts(){
   document.getElementById("accTotal").textContent = money(totalGBP());
-  document.getElementById("accSub").innerHTML = state.display!=="GBP"
-    ? "Base "+money(totalGBP())+" \u00b7 "+"\u00a3"+grpFor(totalGBP(),"GBP")+" GBP" : "As of today";
+  document.getElementById("accSub").textContent = "As of today";
   var cats = orderedCats();
   var groups = {}; cats.forEach(function(c){ groups[c]=[]; });
   state.accounts.forEach(function(a){ (groups[a.cat]=groups[a.cat]||[]).push(a); });
@@ -411,16 +414,16 @@ function renderAccounts(){
     html += '<div class="group">'+
       '<div class="group-head">'+
         '<div class="group-title"><span class="cat-dot" style="background:'+catColor(cat)+'"></span>'+esc(cat)+'</div>'+
-        '<div class="group-total num">'+money(sub)+'</div>'+
+        '<div class="group-total num'+(sub<0?' neg-amt':'')+'">'+money(sub)+'</div>'+
       '</div><div class="card" style="padding:2px 0">';
     list.forEach(function(a){
-      var showNative = a.cur !== state.display;
+      var showNative = a.cur !== state.display, g = gbpOf(a);
       html += '<div class="acct" onclick="openAccount(\''+a.id+'\')">'+
           '<div><div class="acct-name">'+esc(a.name)+
             (a.jur==="India" ? '<span class="tag india">IN</span>' : (a.jur!=="UK"?'<span class="tag">'+esc(a.jur)+'</span>':''))+
           '</div>'+
           '<div class="acct-meta">'+esc(cat)+(showNative?' \u00b7 '+esc(a.cur):'')+'</div></div>'+
-          '<div class="acct-val"><div class="acct-gbp num">'+money(gbpOf(a))+'</div>'+
+          '<div class="acct-val"><div class="acct-gbp num'+(g<0?' neg-amt':'')+'">'+money(g)+'</div>'+
             (showNative?'<div class="acct-native num">'+nativeStr(a)+'</div>':'')+'</div>'+
         '</div>';
     });
@@ -431,17 +434,15 @@ function renderAccounts(){
 
 /* ---------- render: dashboard ---------- */
 function renderDash(){
-  var tot = totalGBP();
-  document.getElementById("dashTotal").textContent = money(tot);
+  var net = totalGBP(), assets = assetsGBP(), debts = debtsGBP();
+  document.getElementById("dashTotal").textContent = money(net);
 
-  // delta vs most recent snapshot strictly before current month
-  var cm = curMonth();
-  var prev = null;
+  // delta vs most recent snapshot strictly before current month (net)
+  var cm = curMonth(), prev = null;
   state.snapshots.slice().sort(byMonth).forEach(function(s){ if (s.ym < cm) prev = s; });
   var deltaEl = document.getElementById("dashDelta");
   if (prev){
-    var diff = tot - prev.total, pct = prev.total ? diff/prev.total*100 : 0;
-    var up = diff>=0;
+    var pv = snapNet(prev), diff = net - pv, pct = pv ? diff/pv*100 : 0, up = diff>=0;
     deltaEl.innerHTML = '<span class="delta '+(up?'up':'down')+'">'+(up?'\u25B2 ':'\u25BC ')+money(Math.abs(diff))+
       ' ('+(up?'+':'\u2212')+Math.abs(pct).toFixed(1)+'%)</span> since '+esc(prettyMonth(prev.ym));
   } else {
@@ -450,90 +451,106 @@ function renderDash(){
 
   renderChart();
 
-  // by category
-  var groups={}; state.accounts.forEach(function(a){ groups[a.cat]=(groups[a.cat]||0)+gbpOf(a); });
-  var rows = orderedCats().map(function(c){ return {c:c,v:groups[c]||0}; }).filter(function(x){ return x.v>0; })
-                 .sort(function(a,b){ return b.v-a.v; });
-  var max = rows.length ? rows[0].v : 1;
-  document.getElementById("byCategory").innerHTML = rows.length ? rows.map(function(r){
-    var pct = tot? (r.v/tot*100):0;
+  // assets
+  document.getElementById("assetsTotal").textContent = money(assets);
+  document.getElementById("assetsByCat").innerHTML = catBars(assetsByCatMap(), assets, catColor);
+  document.getElementById("assetsByJur").innerHTML = jurSplit(jurMap(true), assets);
+
+  // debts (hidden entirely when there are none)
+  var debtCard = document.getElementById("debtsCard");
+  if (debts <= 0){ debtCard.classList.add("hide"); }
+  else {
+    debtCard.classList.remove("hide");
+    document.getElementById("debtsTotal").textContent = money(debts);
+    document.getElementById("debtsByCat").innerHTML = catBars(debtsByCatMap(), debts, function(){ return "var(--neg)"; });
+    document.getElementById("debtsByJur").innerHTML = jurSplit(jurMap(false), debts);
+  }
+}
+
+function assetsByCatMap(){ var m={}; state.accounts.forEach(function(a){ var g=gbpOf(a); if(g>0) m[a.cat]=(m[a.cat]||0)+g; }); return m; }
+function debtsByCatMap(){ var m={}; state.accounts.forEach(function(a){ var g=gbpOf(a); if(g<0) m[a.cat]=(m[a.cat]||0)-g; }); return m; }
+function jurMap(wantAssets){ var m={}; state.accounts.forEach(function(a){ var g=gbpOf(a);
+  if(wantAssets? g>0 : g<0) m[a.jur]=(m[a.jur]||0)+Math.abs(g); }); return m; }
+
+function catBars(map, total, colorFn){
+  var rows = Object.keys(map).map(function(c){ return {c:c,v:map[c]}; }).filter(function(x){ return x.v>0; })
+              .sort(function(a,b){ return b.v-a.v; });
+  if (!rows.length) return '<div class="empty">Add accounts to see this.</div>';
+  var max = rows[0].v;
+  return rows.map(function(r){
+    var pct = total? (r.v/total*100):0, col = colorFn(r.c);
     return '<div class="bd-row">'+
-      '<div class="bd-name"><span class="cat-dot" style="background:'+catColor(r.c)+'"></span>'+esc(r.c)+'</div>'+
-      '<div class="bd-track"><div class="bd-fill" style="width:'+(r.v/max*100)+'%;background:'+catColor(r.c)+'"></div></div>'+
+      '<div class="bd-name"><span class="cat-dot" style="background:'+col+'"></span>'+esc(r.c)+'</div>'+
+      '<div class="bd-track"><div class="bd-fill" style="width:'+(r.v/max*100)+'%;background:'+col+'"></div></div>'+
       '<div class="bd-amt num">'+money(r.v)+'<div class="bd-pct num">'+pct.toFixed(0)+'%</div></div>'+
     '</div>';
-  }).join("") : '<div class="empty">Add accounts to see your breakdown.</div>';
-
-  // by jurisdiction
-  var jur={}; state.accounts.forEach(function(a){ jur[a.jur]=(jur[a.jur]||0)+gbpOf(a); });
-  var jkeys = Object.keys(jur).sort(function(a,b){ return jur[b]-jur[a]; });
-  if (!jkeys.length){ document.getElementById("byJuris").innerHTML = '<div class="empty">Add accounts to see your UK / India split.</div>'; return; }
+  }).join("");
+}
+function jurSplit(map, total){
+  var keys = Object.keys(map).sort(function(a,b){ return map[b]-map[a]; });
+  if (!keys.length) return '<div class="empty">Add accounts to see this.</div>';
   var jcol = { UK:"var(--accent)", India:"var(--gold)", Other:"var(--other)" };
-  var split = jkeys.map(function(k){
-    var w = tot? (jur[k]/tot*100):0;
-    return '<div style="flex:'+w+';background:'+(jcol[k]||"var(--other)")+'">'+(w>=10?Math.round(w)+'%':'')+'</div>';
-  }).join("");
-  var legend = jkeys.map(function(k){
-    return '<span><span class="lg-dot" style="background:'+(jcol[k]||"var(--other)")+'"></span>'+k+' <b class="num">'+money(jur[k])+'</b></span>';
-  }).join("");
-  document.getElementById("byJuris").innerHTML = '<div class="split">'+split+'</div><div class="split-legend">'+legend+'</div>';
+  var split = keys.map(function(k){ var w = total? (map[k]/total*100):0;
+    return '<div style="flex:'+w+';background:'+(jcol[k]||"var(--other)")+'">'+(w>=10?Math.round(w)+'%':'')+'</div>'; }).join("");
+  var legend = keys.map(function(k){
+    return '<span><span class="lg-dot" style="background:'+(jcol[k]||"var(--other)")+'"></span>'+esc(k)+' <b class="num">'+money(map[k])+'</b></span>'; }).join("");
+  return '<div class="split">'+split+'</div><div class="split-legend">'+legend+'</div>';
 }
 
-/* ---------- chart ---------- */
-function setChartMode(m){ chartMode=m;
-  document.getElementById("mMonthly").setAttribute("aria-pressed", m==="month");
-  document.getElementById("mYearly").setAttribute("aria-pressed", m==="year");
-  renderChart();
-}
-function seriesData(){
-  var snaps = state.snapshots.slice().sort(byMonth);
-  // ensure current live total is represented at the current month
-  var cm = curMonth(), live = totalGBP();
-  var found=false;
-  snaps = snaps.map(function(s){ if(s.ym===cm){ found=true; return {ym:s.ym,total:live}; } return s; });
-  if (!found) snaps.push({ym:cm,total:live});
-  snaps.sort(byMonth);
-  if (chartMode==="year"){
-    var byY={}; snaps.forEach(function(s){ byY[s.ym.slice(0,4)]=s; }); // last per year
-    return Object.keys(byY).sort().map(function(y){ return {label:y, total:byY[y].total}; });
-  }
-  return snaps.map(function(s){ return {label:s.ym, total:s.total}; });
+/* ---------- chart (time-proportional net worth) ---------- */
+function snapNet(s){ return (s.net!=null)?s.net:(s.total!=null?s.total:0); }
+function ymToTime(ym){ var p=ym.split("-"); return new Date(+p[0], ((+p[1])||1)-1, 1).getTime(); }
+function fmtTick(t){ var d=new Date(t),
+  mo=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
+  return mo+" "+d.getFullYear(); }
+function seriesPoints(){
+  var cm=curMonth(), pts=[];
+  state.snapshots.forEach(function(s){ if(s.ym===cm) return; pts.push({ t:ymToTime(s.ym), v:snapNet(s) }); });
+  pts.push({ t:Date.now(), v:totalGBP(), live:true });
+  pts.sort(function(a,b){ return a.t-b.t; });
+  return pts;
 }
 function renderChart(){
-  var data = seriesData();
-  var el = document.getElementById("chartArea");
-  var note = document.getElementById("chartNote");
-  var W=620, H=180, pad=8;
-  if (data.length<=1){
-    var only = data[0];
-    el.innerHTML = '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="none">'+
-      '<circle cx="'+(W/2)+'" cy="'+(H/2)+'" r="5" fill="var(--accent)"/>'+
+  var pts = seriesPoints();
+  var el = document.getElementById("chartArea"), note = document.getElementById("chartNote");
+  var W=640, H=190, padX=12, padT=16, padB=30;
+  if (pts.length<=1){
+    var only = pts[0];
+    el.innerHTML = '<svg viewBox="0 0 '+W+' '+H+'" width="100%">'+
+      '<circle cx="'+(W/2)+'" cy="'+(H/2)+'" r="5" fill="var(--pos)"/>'+
       '<text x="'+(W/2)+'" y="'+(H/2-16)+'" text-anchor="middle" fill="var(--text)" font-size="18" font-weight="800">'+
-        (only?money(only.total):"")+'</text></svg>';
-    note.textContent = "One data point so far ("+(only?prettyMonth(only.label):"")+"). Save snapshots over time to see the line grow.";
+        (only?money(only.v):"")+'</text></svg>';
+    note.textContent = "Add a snapshot (or a past month) to start the timeline.";
     return;
   }
-  var vals = data.map(function(d){ return d.total; });
-  var min = Math.min.apply(null,vals), max = Math.max.apply(null,vals);
-  if (min===max){ min = min*0.98; max = max*1.02 || 1; }
-  var span = max-min || 1;
-  var n = data.length;
-  function X(i){ return pad + i*(W-2*pad)/(n-1); }
-  function Y(v){ return pad + (1-(v-min)/span)*(H-2*pad); }
-  var line="", area="M "+X(0)+" "+Y(vals[0]);
-  data.forEach(function(d,i){ var x=X(i),y=Y(d.total); line+=(i?" L ":"M ")+x+" "+y; area+=" L "+x+" "+y; });
-  area += " L "+X(n-1)+" "+(H-pad)+" L "+X(0)+" "+(H-pad)+" Z";
-  var dots = data.map(function(d,i){ return '<circle cx="'+X(i)+'" cy="'+Y(d.total)+'" r="3" fill="var(--accent)"/>'; }).join("");
+  var tMin=pts[0].t, tMax=pts[pts.length-1].t; if(tMax===tMin) tMax=tMin+1;
+  var vals=pts.map(function(p){ return p.v; });
+  var vmin=Math.min.apply(null,vals), vmax=Math.max.apply(null,vals);
+  var lo,hi;
+  if(vmin<0){ lo=Math.min(0,vmin); hi=Math.max(0,vmax); } else { lo=vmin; hi=vmax; }
+  if(lo===hi){ lo=lo-Math.abs(lo)*0.05-1; hi=hi+Math.abs(hi)*0.05+1; }
+  var vspan=hi-lo||1;
+  function X(t){ return padX + (t-tMin)/(tMax-tMin)*(W-2*padX); }
+  function Y(v){ return padT + (1-(v-lo)/vspan)*(H-padT-padB); }
+  var line="";
+  pts.forEach(function(p,i){ line+=(i?" L ":"M ")+X(p.t).toFixed(1)+" "+Y(p.v).toFixed(1); });
+  var area = line + " L "+X(tMax).toFixed(1)+" "+(H-padB).toFixed(1)+" L "+X(tMin).toFixed(1)+" "+(H-padB).toFixed(1)+" Z";
+  var dots = pts.map(function(p){ return '<circle cx="'+X(p.t).toFixed(1)+'" cy="'+Y(p.v).toFixed(1)+'" r="3" fill="var(--pos)"/>'; }).join("");
+  var zero = (vmin<0) ? '<line x1="'+padX+'" y1="'+Y(0).toFixed(1)+'" x2="'+(W-padX)+'" y2="'+Y(0).toFixed(1)+'" stroke="var(--line-2)" stroke-width="1" stroke-dasharray="4 4"/>' : '';
+  var baseY = H-padB;
+  var ticks = [{t:tMin,a:"start",x:padX},{t:tMax,a:"end",x:W-padX}];
+  if (tMax-tMin > 1000*60*60*24*45){ var mid=(tMin+tMax)/2; ticks.splice(1,0,{t:mid,a:"middle",x:X(mid)}); }
+  var xlabels = ticks.map(function(tk){ return '<text x="'+tk.x.toFixed(1)+'" y="'+(H-9)+'" fill="var(--faint)" font-size="11" text-anchor="'+tk.a+'">'+fmtTick(tk.t)+'</text>'; }).join("");
+  var axis = '<line x1="'+padX+'" y1="'+baseY+'" x2="'+(W-padX)+'" y2="'+baseY+'" stroke="var(--line)" stroke-width="1"/>';
   el.innerHTML =
-    '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="none" style="overflow:visible">'+
-      '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'+
-        '<stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28"/>'+
-        '<stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>'+
-      '<path d="'+area+'" fill="url(#g)"/>'+
-      '<path d="'+line+'" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+
-      dots+'</svg>';
-  note.innerHTML = prettyMonth(data[0].label)+' &rarr; '+prettyMonth(data[n-1].label)+
-    ' \u00b7 low '+money(min)+' \u00b7 high '+money(max);
+    '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="overflow:visible">'+
+      '<defs><linearGradient id="gnet" x1="0" y1="0" x2="0" y2="1">'+
+        '<stop offset="0%" stop-color="var(--pos)" stop-opacity="0.30"/>'+
+        '<stop offset="100%" stop-color="var(--pos)" stop-opacity="0"/></linearGradient></defs>'+
+      '<path d="'+area+'" fill="url(#gnet)"/>'+ zero + axis +
+      '<path d="'+line+'" fill="none" stroke="var(--pos)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+      dots + xlabels + '</svg>';
+  note.innerHTML = fmtTick(tMin)+' &rarr; '+fmtTick(tMax)+' \u00b7 low '+money(vmin)+' \u00b7 high '+money(vmax);
 }
 
 /* ---------- snapshots ---------- */
@@ -544,15 +561,13 @@ function prettyMonth(ym){
   var p=ym.split("-"), mo=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][(+p[1])-1];
   return mo+" "+p[0];
 }
-function snapshotObj(ym, total){
-  var byCat={}; orderedCats().forEach(function(c){ byCat[c]=0; });
-  state.accounts.forEach(function(a){ byCat[a.cat]=(byCat[a.cat]||0)+gbpOf(a); });
-  return { ym:ym, total: total, byCat:byCat };
+function snapshotObj(ym){
+  return { ym:ym, net: totalGBP(), assets: assetsGBP(), debts: debtsGBP() };
 }
 function saveSnapshot(){
-  var ym=curMonth(), t=totalGBP();
+  var ym=curMonth();
   state.snapshots = state.snapshots.filter(function(s){ return s.ym!==ym; });
-  state.snapshots.push(snapshotObj(ym,t));
+  state.snapshots.push(snapshotObj(ym));
   save(); renderDash(); toast("Snapshot saved for "+prettyMonth(ym));
 }
 function openAddPast(){
@@ -566,7 +581,7 @@ function savePast(){
   var v=parseFloat(document.getElementById("pastVal").value);
   if (!ym || isNaN(v)){ toast("Enter a month and amount"); return; }
   state.snapshots = state.snapshots.filter(function(s){ return s.ym!==ym; });
-  state.snapshots.push({ ym:ym, total:v, byCat:null });
+  state.snapshots.push({ ym:ym, net:v, assets:null, debts:null });
   save(); renderSnapList(); renderDash(); toast("Added "+prettyMonth(ym));
   document.getElementById("pastMonth").value=""; document.getElementById("pastVal").value="";
 }
@@ -580,7 +595,7 @@ function renderSnapList(){
   if (!snaps.length){ el.innerHTML = '<p class="preview">No saved snapshots yet.</p>'; return; }
   el.innerHTML = '<p class="field-label" style="margin-top:6px">Saved snapshots</p>' + snaps.map(function(s){
     return '<div class="rate-row"><div class="rate-code num" style="width:auto;flex:1">'+prettyMonth(s.ym)+
-      '</div><div class="num" style="font-weight:700">'+money(s.total)+
+      '</div><div class="num" style="font-weight:700">'+money(snapNet(s))+
       '</div><button class="rate-x" onclick="deleteSnap(\''+s.ym+'\')" aria-label="Delete">&times;</button></div>';
   }).join("");
 }
@@ -741,9 +756,9 @@ function exportAccountsCSV(){
 function exportHistoryCSV(){
   var snaps=state.snapshots.slice().sort(byMonth);
   if(!snaps.length){ toast("No snapshots yet"); return; }
-  var cats=orderedCats();
-  var rows=[["Month","Total (GBP)"].concat(cats)];
-  snaps.forEach(function(s){ rows.push([s.ym, Math.round(s.total)].concat(cats.map(function(c){ return s.byCat?Math.round(s.byCat[c]||0):""; }))); });
+  var rows=[["Month","Net worth (GBP)","Assets (GBP)","Debts (GBP)"]];
+  snaps.forEach(function(s){ rows.push([s.ym, Math.round(snapNet(s)),
+    (s.assets!=null?Math.round(s.assets):""), (s.debts!=null?Math.round(s.debts):"")]); });
   download("wealth-history-"+today()+".csv", rows.map(function(r){return r.map(csvCell).join(",");}).join("\r\n"), "text/csv;charset=utf-8");
   toast("History exported");
 }
